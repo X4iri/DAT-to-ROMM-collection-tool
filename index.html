@@ -115,7 +115,7 @@
     <h2>2. Select & Parse DAT File</h2>
     
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-      <p id="fileNameText">📂 Drag & Drop your <strong>.dat</strong> or <strong>.xml</strong> file here, or click to browse</p>
+      <p id="fileNameText">📁 Drag & Drop your <strong>.dat</strong> or <strong>.xml</strong> file here, or click to browse</p>
       <input type="file" id="fileInput" accept=".dat,.xml" style="display: none;" onchange="handleFileSelect(event)">
     </div>
 
@@ -265,7 +265,7 @@
 
   function parseDatFile(file) {
     selectedFile = file;
-    document.getElementById('fileNameText').innerHTML = `📄 Selected: <strong>${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
+    document.getElementById('fileNameText').innerHTML = `📁 Selected: <strong>${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
     log(`Reading DAT file: ${file.name}...`);
 
     const reader = new FileReader();
@@ -365,7 +365,6 @@
 
     try {
       while (true) {
-        // Use exact platform_ids query syntax + fallback to filter
         const url = `${apiBase}/roms?platform_ids=${platformId}&platform_id=${platformId}&limit=${limit}&offset=${offset}`;
 
         const res = await fetch(url, { headers: getHeaders() });
@@ -375,7 +374,6 @@
         const batch = Array.isArray(data) ? data : (data.items || []);
         if (!batch.length) break;
 
-        // Check if server respected query filter or returned global items
         const isFiltered = batch.every(r => r.platform_id == platformId);
         
         if (isFiltered) {
@@ -383,7 +381,6 @@
           log(`  - Retrieved ${serverRoms.length} platform ROMs...`);
           if (batch.length < limit) break;
         } else {
-          // If server ignored the filter and returned global items, isolate only target platform items
           const scopedBatch = batch.filter(r => r.platform_id == platformId);
           serverRoms = serverRoms.concat(scopedBatch);
           log(`  - Filtered ${serverRoms.length} platform ROMs from server page (offset ${offset})...`);
@@ -431,22 +428,27 @@
         return;
       }
 
-      // Resolve Collection ID
+      // Resolve Collection ID & Update Name/Description
       log(`[*] Ensuring collection '${colName}' exists...`);
       const colRes = await fetch(`${apiBase}/collections`, { headers: getHeaders() });
+      if (!colRes.ok) throw new Error(`Failed to fetch collections: ${colRes.statusText}`);
+
       const colData = await colRes.json();
       const collections = Array.isArray(colData) ? colData : (colData.items || []);
       
       let targetCollectionId = null;
       for (let c of collections) {
-        const name = (c.name || c.title || "").trim();
-        if (name === colName) { targetCollectionId = c.id; break; }
-        if (name === "") {
-          fetch(`${apiBase}/collections/${c.id}`, { method: 'DELETE', headers: getHeaders() });
+        const existingName = (c.name || c.title || "").trim();
+        if (existingName.toLowerCase() === colName.toLowerCase()) { 
+          targetCollectionId = c.id; 
+          break; 
         }
       }
 
-      const colPayload = { name: colName, title: colName, description: colDesc };
+      const colPayload = { 
+        name: colName, 
+        description: colDesc 
+      };
 
       if (!targetCollectionId) {
         log(`[*] Creating collection '${colName}'...`);
@@ -455,16 +457,17 @@
           headers: getHeaders(),
           body: JSON.stringify(colPayload)
         });
+        if (!createRes.ok) throw new Error(`Failed to create collection: ${createRes.statusText}`);
         const created = await createRes.json();
         targetCollectionId = created.id;
+      } else {
+        log(`[*] Updating existing collection ID ${targetCollectionId}...`);
+        await fetch(`${apiBase}/collections/${targetCollectionId}`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify(colPayload)
+        });
       }
-
-      // Ensure Title & Description are stored
-      await fetch(`${apiBase}/collections/${targetCollectionId}`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify(colPayload)
-      });
 
       bar.style.width = '80%';
       log(`[*] Linking ${matchedIds.length} games to Collection ID ${targetCollectionId}...`);
